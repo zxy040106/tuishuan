@@ -514,7 +514,7 @@ def pai_shishen(sizhu: dict) -> dict:
 # =============================================================================
 
 def pai_dayun(nian_gan: str, nian_zhi: str, yue_zhi: str,
-              gender: str, birth_dt: datetime) -> dict:
+              gender: str, birth_dt: datetime, ri_gan: str = "") -> dict:
     """
     排大运。
     gender: '男' or '女'
@@ -540,14 +540,6 @@ def pai_dayun(nian_gan: str, nian_zhi: str, yue_zhi: str,
 
     # 排大运列表
     yue_ganzhi = month_ganzhi(nian_gan, determine_nongli_month(birth_dt))
-
-    # 需要日干来计算十神: 从调用方传入或直接取
-    ri_gan = None
-    import inspect
-    for frame_info in inspect.stack():
-        if 'sizhu' in frame_info.frame.f_locals:
-            ri_gan = frame_info.frame.f_locals['sizhu'].get('日干')
-            break
 
     dayun_list = []
     for i in range(8):  # 排8步大运
@@ -870,6 +862,215 @@ def find_shensha(sizhu: dict, gender: str = "未知") -> dict:
 
 
 # =============================================================================
+# 五行统计
+# =============================================================================
+
+def count_wuxing(sizhu: dict) -> dict:
+    """
+    统计四柱中五行的分布。
+    规则: 天干权重2, 地支本气权重2, 地支藏干(含本气之外的藏干)权重1。
+    返回: {"分布": {五行: 权重}, "最强": str, "最弱": str, "分析": str}
+    """
+    counts = {"木": 0, "火": 0, "土": 0, "金": 0, "水": 0}
+
+    # 天干 (权重2)
+    for pillar in ["年", "月", "日", "时"]:
+        gan = sizhu[f"{pillar}干"]
+        wx = TIANGAN_WUXING[gan]
+        counts[wx] += 2
+
+    # 地支本气 (权重2)
+    for pillar in ["年", "月", "日", "时"]:
+        zhi = sizhu[f"{pillar}支"]
+        wx = DIZHI_WUXING[zhi]
+        counts[wx] += 2
+
+    # 地支藏干 (权重1: 本气已在地支部分计入权重2, 此处中气/余气各权重1;
+    # 为简化，全部藏干(含本气)权重1，本气重复计算是合理的因为地支本气单独计了2)
+    for pillar in ["年", "月", "日", "时"]:
+        for cg in sizhu["藏干"][pillar]:
+            wx = TIANGAN_WUXING[cg]
+            counts[wx] += 1
+
+    total = sum(counts.values())
+    distribution = {k: v for k, v in counts.items()}
+
+    # 排序
+    sorted_wx = sorted(distribution.items(), key=lambda x: -x[1])
+    strongest = sorted_wx[0][0]
+    weakest = sorted_wx[-1][0]
+
+    # 分析文本
+    pct_list = []
+    for wx, w in sorted_wx:
+        pct = round(w / total * 100, 1) if total > 0 else 0
+        pct_list.append(f"{wx}{w}({pct}%)")
+    dist_str = " > ".join(f"{wx}({w})" for wx, w in sorted_wx)
+
+    day_gan = sizhu["日干"]
+    ri_wx = TIANGAN_WUXING[day_gan]
+    ri_rank = sorted_wx.index(next(x for x in sorted_wx if x[0] == ri_wx)) + 1
+
+    analysis = f"日主{day_gan}属{ri_wx}(排名第{ri_rank}/5), "
+    if ri_rank <= 2:
+        analysis += f"五行较为均衡有力。最强{strongest}, 最弱{weakest}。"
+    else:
+        analysis += f"日主五行偏弱, 宜大运流年补{ri_wx}。最强{strongest}, 最弱{weakest}。"
+
+    return {
+        "分布": distribution,
+        "排序": dist_str,
+        "最强": strongest,
+        "最弱": weakest,
+        "分析": analysis,
+    }
+
+
+# =============================================================================
+# 补充神煞
+# =============================================================================
+
+def _get_extra_shensha(sizhu: dict) -> dict:
+    """
+    计算补充神煞: 红鸾, 天喜, 禄神, 灾煞, 孤辰, 寡宿, 阴阳差错, 魁罡, 金舆。
+    返回: {神煞名: [{"位置": str, "含义": str}, ...]}
+    """
+    nian_zhi = sizhu["年支"]
+    ri_gan = sizhu["日干"]
+    ri_zhi = sizhu["日支"]
+    ri_zhu = sizhu["日柱"]
+
+    result = {}
+
+    # 红鸾: 按年支查 — 子上起丑, 丑上起寅, 寅上起卯, ..., 亥上起子
+    # 公式: 红鸾 = (index_of_year_zhi + 1) % 12 → 地支
+    DIZHI_LIST = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
+    nian_zhi_idx = DIZHI_LIST.index(nian_zhi)
+    hongluan_idx = (nian_zhi_idx + 1) % 12
+    hongluan_zhi = DIZHI_LIST[hongluan_idx]
+    hongluan_positions = []
+    for p in ["年","月","日","时"]:
+        if sizhu[f"{p}支"] == hongluan_zhi:
+            hongluan_positions.append(p)
+    if hongluan_positions:
+        pos_str = "、".join(hongluan_positions)
+        result["红鸾"] = [{"位置": f"{pos_str}支", "地支": hongluan_zhi,
+                          "含义": "桃花喜气，主婚恋、添丁、喜庆之事"}]
+    else:
+        result["红鸾"] = [{"位置": "无", "地支": hongluan_zhi,
+                          "含义": f"红鸾在{hongluan_zhi}方，逢{hongluan_zhi}年/大运出现"}]
+
+    # 天喜: 红鸾的对冲位 (红鸾+6)%12
+    tianxi_idx = (hongluan_idx + 6) % 12
+    tianxi_zhi = DIZHI_LIST[tianxi_idx]
+    tianxi_positions = []
+    for p in ["年","月","日","时"]:
+        if sizhu[f"{p}支"] == tianxi_zhi:
+            tianxi_positions.append(p)
+    if tianxi_positions:
+        pos_str = "、".join(tianxi_positions)
+        result["天喜"] = [{"位置": f"{pos_str}支", "地支": tianxi_zhi,
+                          "含义": "大喜之事，婚嫁、升迁、得子之喜"}]
+    else:
+        result["天喜"] = [{"位置": "无", "地支": tianxi_zhi,
+                          "含义": f"天喜在{tianxi_zhi}方，逢{tianxi_zhi}年/大运出现"}]
+
+    # 禄神: 按日干查 — 甲禄寅, 乙禄卯, 丙戊禄巳, 丁己禄午, 庚禄申, 辛禄酉, 壬禄亥, 癸禄子
+    LUSHEN = {"甲":"寅","乙":"卯","丙":"巳","丁":"午","戊":"巳",
+              "己":"午","庚":"申","辛":"酉","壬":"亥","癸":"子"}
+    lushen_zhi = LUSHEN.get(ri_gan, "")
+    lushen_found = []
+    for p in ["年","月","日","时"]:
+        if sizhu[f"{p}支"] == lushen_zhi:
+            lushen_found.append(p)
+    if lushen_found:
+        result["禄神"] = [{"位置": "、".join(f"{p}支" for p in lushen_found),
+                          "地支": lushen_zhi,
+                          "含义": "福禄寿喜，衣食无忧，身体健康，利事业财运"}]
+    else:
+        result["禄神"] = [{"位置": "无", "地支": lushen_zhi,
+                          "含义": f"禄在{lushen_zhi}方，逢{lushen_zhi}年/运禄神到位"}]
+
+    # 灾煞: 按年支三合局查 — 申子辰=午, 亥卯未=酉, 寅午戌=子, 巳酉丑=卯
+    ZAISHA = {frozenset(["申","子","辰"]):"午", frozenset(["亥","卯","未"]):"酉",
+              frozenset(["寅","午","戌"]):"子", frozenset(["巳","酉","丑"]):"卯"}
+    zaisha_zhi = None
+    for k, v in ZAISHA.items():
+        if nian_zhi in k:
+            zaisha_zhi = v
+            break
+    if zaisha_zhi:
+        zaisha_found = []
+        for p in ["年","月","日","时"]:
+            if sizhu[f"{p}支"] == zaisha_zhi:
+                zaisha_found.append(p)
+        if zaisha_found:
+            result["灾煞"] = [{"位置": "、".join(f"{p}支" for p in zaisha_found),
+                              "地支": zaisha_zhi,
+                              "含义": "意外灾祸、血光之兆，但灾煞带贵人可化险为夷"}]
+        else:
+            result["灾煞"] = [{"位置": "无", "地支": zaisha_zhi,
+                              "含义": f"灾煞在{zaisha_zhi}方，逢{zaisha_zhi}年运需谨慎"}]
+
+    # 孤辰/寡宿: 按年支三合局查
+    # 亥子丑=寅(孤辰)戌(寡宿), 寅卯辰=巳丑, 巳午未=申辰, 申酉戌=亥未
+    GUCHEN = {frozenset(["亥","子","丑"]):"寅", frozenset(["寅","卯","辰"]):"巳",
+              frozenset(["巳","午","未"]):"申", frozenset(["申","酉","戌"]):"亥"}
+    GUASU = {frozenset(["亥","子","丑"]):"戌", frozenset(["寅","卯","辰"]):"丑",
+             frozenset(["巳","午","未"]):"辰", frozenset(["申","酉","戌"]):"未"}
+    for name, gmap, meaning in [
+        ("孤辰", GUCHEN, "性格孤僻，不喜社交，六亲缘薄，宜晚婚"),
+        ("寡宿", GUASU, "孤独寡居之象，感情多波折，宜修身养性"),
+    ]:
+        target_zhi = None
+        for k, v in gmap.items():
+            if nian_zhi in k:
+                target_zhi = v
+                break
+        if target_zhi:
+            found = []
+            for p in ["年","月","日","时"]:
+                if sizhu[f"{p}支"] == target_zhi:
+                    found.append(p)
+            if found:
+                result[name] = [{"位置": "、".join(f"{p}支" for p in found),
+                                 "地支": target_zhi, "含义": meaning}]
+            else:
+                result[name] = [{"位置": "无", "地支": target_zhi,
+                                 "含义": f"{name}在{target_zhi}方，逢{target_zhi}年运显现"}]
+
+    # 阴阳差错: 特定日柱 — 丙子、丁丑、戊寅、辛卯、壬辰、癸巳、丙午、丁未、戊申、辛酉、壬戌、癸亥
+    YYC_RIZHU = {"丙子","丁丑","戊寅","辛卯","壬辰","癸巳","丙午","丁未","戊申","辛酉","壬戌","癸亥"}
+    if ri_zhu in YYC_RIZHU:
+        result["阴阳差错"] = [{"位置": f"日柱{ri_zhu}",
+                              "含义": "婚姻多波折，男女易生误会，宜晚婚或双方多沟通包容"}]
+
+    # 魁罡: 特定日柱 — 庚辰、庚戌、壬辰、戊戌
+    KUIGANG_RIZHU = {"庚辰","庚戌","壬辰","戊戌"}
+    if ri_zhu in KUIGANG_RIZHU:
+        result["魁罡"] = [{"位置": f"日柱{ri_zhu}",
+                          "含义": "刚强果断，聪明但性格刚烈，宜自律不宜放纵，带魁罡者多掌权"}]
+
+    # 金舆: 按日干查 — 甲辰, 乙巳, 丙戊申, 丁己子, 庚寅, 辛丑, 壬亥, 癸卯
+    JINYU_MAP = {"甲":"辰","乙":"巳","丙":"申","丁":"子","戊":"申",
+                 "己":"子","庚":"寅","辛":"丑","壬":"亥","癸":"卯"}
+    jinyu_zhi = JINYU_MAP.get(ri_gan, "")
+    jinyu_found = []
+    for p in ["年","月","日","时"]:
+        if sizhu[f"{p}支"] == jinyu_zhi:
+            jinyu_found.append(p)
+    if jinyu_found:
+        result["金舆"] = [{"位置": "、".join(f"{p}支" for p in jinyu_found),
+                          "地支": jinyu_zhi,
+                          "含义": "富格标志，得物质享受，宜从商，有车马之福"}]
+    else:
+        result["金舆"] = [{"位置": "无", "地支": jinyu_zhi,
+                          "含义": f"金舆在{jinyu_zhi}方，逢{jinyu_zhi}年运财禄丰厚"}]
+
+    return result
+
+
+# =============================================================================
 # 综合排盘
 # =============================================================================
 
@@ -878,7 +1079,7 @@ def bazi_full(year: int, month: int, day: int, hour: int, gender: str = "未知"
     dt = datetime(year, month, day, hour)
     sizhu = pai_sizhu(year, month, day, hour)
     shishen = pai_shishen(sizhu)
-    dayun = pai_dayun(sizhu["年干"], sizhu["年支"], sizhu["月支"], gender, dt)
+    dayun = pai_dayun(sizhu["年干"], sizhu["年支"], sizhu["月支"], gender, dt, sizhu["日干"])
     shensha = find_shensha(sizhu, gender)
 
     current_year = datetime.now().year
@@ -1050,19 +1251,55 @@ def bazi_full(year: int, month: int, day: int, hour: int, gender: str = "未知"
     if sizhu["时支"] in xunkong:
         kongwang_desc.append("时支旬空 → 子女宫空亡，晚年运或子女运偏弱")
 
+    # 空亡详情: 每柱若逢空亡，分析影响及填实/冲空时机
+    kongwang_details = []
+    zhi_to_wuxing = {"子":"水","丑":"土","寅":"木","卯":"木","辰":"土","巳":"火",
+                     "午":"火","未":"土","申":"金","酉":"金","戌":"土","亥":"水"}
+    liuchong_map = {"子":"午","午":"子","丑":"未","未":"丑","寅":"申","申":"寅",
+                    "卯":"酉","酉":"卯","辰":"戌","戌":"辰","巳":"亥","亥":"巳"}
+    pillar_labels = {"年": "祖上/童年", "月": "父母/青年", "日": "配偶/中年", "时": "子女/晚年"}
+    for pillar in ["年","月","日","时"]:
+        zhi = sizhu[f"{pillar}支"]
+        if zhi in xunkong:
+            label = pillar_labels[pillar]
+            wx = zhi_to_wuxing[zhi]
+            chong_zhi = liuchong_map.get(zhi, "")
+            tianshi = f"遇{chong_zhi}年/大运(冲空)" if chong_zhi else ""
+            items = [zhi]
+            items.append(chong_zhi) if chong_zhi else None
+            detail = {
+                "柱": f"{pillar}柱({label})",
+                "空亡地支": zhi,
+                "五行": wx,
+                "影响": f"{label}方面力量减弱，{pillar}宫虚浮不定，对应六亲缘薄或该阶段运势起伏",
+                "填实": f"逢{zhi}年或{zhi}大运({wx}旺年)可填实",
+                "冲空": tianshi if tianshi else "无冲空之支",
+                "化解": f"宜补{wx}五行，多在{wx}旺之方位/年份行事",
+            }
+            kongwang_details.append(detail)
+
+    # 五行统计
+    wuxing_stats = count_wuxing(sizhu)
+
+    # 补充神煞
+    extra_shensha = _get_extra_shensha(sizhu)
+
     return {
         "四柱": sizhu,
         "十神": shishen,
         "大运": dayun,
         "神煞": shensha,
+        "补充神煞": extra_shensha,
         "流年": liunian,
         "流年十神": liunian_shishen_gan,
         "当前流年": f"{current_year}年 {liunian}({liunian_shishen_gan})",
         "旬空": xunkong,
         "旬空分析": kongwang_desc,
+        "空亡详情": kongwang_details,
         "合冲刑害": relations,
         "大运流年合冲刑害": dyn_relations,
         "用神分析": yongshen,
+        "五行统计": wuxing_stats,
         "五行": {
             "年": sizhu["纳音"]["年"],
             "月": sizhu["纳音"]["月"],

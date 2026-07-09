@@ -196,6 +196,124 @@ def get_hexagram_by_name(name: str) -> Optional[dict]:
     return _HEXAGRAM_LOOKUP.get(name)
 
 
+def find_palace_by_trigrams(upper: str, lower: str) -> str:
+    """
+    通过上下卦算法查找所属卦宫。
+
+    先尝试直接查表，若查不到则通过八卦五行的演化规则算法推导：
+    - 一个六爻卦由上下两个三画卦组成。
+    - 遍历八卦五行，看哪个宫卦持世规则匹配。
+    """
+    hexagram = _HEXAGRAM_LOOKUP.get((upper, lower))
+    if hexagram:
+        return hexagram["palace"]
+
+    # 备用：通过八卦五行手工判断
+    # 纯卦（上下卦相同）→ 自属本宫
+    if upper == lower:
+        return upper
+
+    # 非纯卦 → 根据八宫卦变规律推导
+    # 一世卦: 本宫初爻变 → 变爻后的下卦变了，上卦 = 本宫
+    # 二世卦: 本宫初二爻变
+    # 三世卦: 本宫初二、三爻变（下卦全变）
+    # 四世卦: 本宫初二三四爻变
+    # 五世卦: 本宫初二三四五爻变
+    # 游魂卦: 五世卦四爻复变
+    # 归魂卦: 游魂卦下卦全变回
+    bagua_list = ["乾", "坎", "艮", "震", "巽", "离", "坤", "兑"]
+    trigram_yao_map = {
+        "乾": ["阳","阳","阳"], "兑": ["阳","阳","阴"], "离": ["阳","阴","阳"],
+        "震": ["阳","阴","阴"], "巽": ["阴","阳","阳"], "坎": ["阴","阳","阴"],
+        "艮": ["阴","阴","阳"], "坤": ["阴","阴","阴"],
+    }
+
+    upper_yao = trigram_yao_map.get(upper)
+    lower_yao = trigram_yao_map.get(lower)
+    if not upper_yao or not lower_yao:
+        return ""
+
+    # Try each palace: reverse the generation steps
+    for palace_name in bagua_list:
+        palace_yao = trigram_yao_map[palace_name]
+        full_yao = [lower_yao[0], lower_yao[1], lower_yao[2],
+                     upper_yao[0], upper_yao[1], upper_yao[2]]
+
+        # Check if this matches any generation step
+        for step in range(8):
+            test_yao = palace_yao * 2  # 本宫六爻
+            if step == 0:
+                # 本宫卦: upper == lower == palace
+                test_lower = test_upper = palace_yao
+            elif step == 1:
+                # 一世: 初爻变
+                test_yao = list(test_yao)
+                test_yao[0] = "阴" if test_yao[0] == "阳" else "阳"
+                test_lower = test_yao[:3]
+                test_upper = test_yao[3:]
+            elif step == 2:
+                # 二世: 初、二爻变
+                test_yao = list(palace_yao * 2)
+                test_yao[0] = "阴" if test_yao[0] == "阳" else "阳"
+                test_yao[1] = "阴" if test_yao[1] == "阳" else "阳"
+                test_lower = test_yao[:3]
+                test_upper = test_yao[3:]
+            elif step == 3:
+                # 三世: 初、二、三爻变
+                test_yao = list(palace_yao * 2)
+                for j in range(3):
+                    test_yao[j] = "阴" if test_yao[j] == "阳" else "阳"
+                test_lower = test_yao[:3]
+                test_upper = test_yao[3:]
+            elif step == 4:
+                # 四世: 初、二、三、四爻变
+                test_yao = list(palace_yao * 2)
+                for j in range(4):
+                    test_yao[j] = "阴" if test_yao[j] == "阳" else "阳"
+                test_lower = test_yao[:3]
+                test_upper = test_yao[3:]
+            elif step == 5:
+                # 五世: 初、二、三、四、五爻变
+                test_yao = list(palace_yao * 2)
+                for j in range(5):
+                    test_yao[j] = "阴" if test_yao[j] == "阳" else "阳"
+                test_lower = test_yao[:3]
+                test_upper = test_yao[3:]
+            elif step == 6:
+                # 游魂: 五世卦四爻复变
+                test_yao = list(palace_yao * 2)
+                for j in range(5):
+                    test_yao[j] = "阴" if test_yao[j] == "阳" else "阳"
+                test_yao[3] = "阴" if test_yao[3] == "阳" else "阳"  # 四爻复回
+                test_lower = test_yao[:3]
+                test_upper = test_yao[3:]
+            elif step == 7:
+                # 归魂: 游魂卦下卦全变回本宫下卦
+                test_yao = list(palace_yao * 2)
+                for j in range(5):
+                    test_yao[j] = "阴" if test_yao[j] == "阳" else "阳"
+                test_yao[3] = "阴" if test_yao[3] == "阳" else "阳"
+                test_yao[0] = palace_yao[0]
+                test_yao[1] = palace_yao[1]
+                test_yao[2] = palace_yao[2]
+                test_lower = test_yao[:3]
+                test_upper = test_yao[3:]
+
+            # Reconstruct trigram names
+            lower_str = "".join(test_lower)
+            upper_str = "".join(test_upper)
+            trigram_rev = {}
+            for k, v in trigram_yao_map.items():
+                trigram_rev["".join(v)] = k
+            test_lower_name = trigram_rev.get(lower_str, "")
+            test_upper_name = trigram_rev.get(upper_str, "")
+
+            if test_upper_name == upper and test_lower_name == lower:
+                return palace_name
+
+    return ""
+
+
 # =============================================================================
 # 六十四卦卦辞 + 爻辞（《周易》通行本）
 # =============================================================================
@@ -1195,6 +1313,44 @@ def get_shiying(shi_position: int) -> dict:
     return {"世爻": shi_position, "应爻": ying}
 
 
+def get_guashen(ben_lines: list, shi_pos: int, ben_nazhi: list) -> dict:
+    """
+    计算卦身（月卦身）。
+
+    规则：
+    - 阳爻持世：从初爻起子，顺数至世位（子丑寅卯辰巳午未申酉戌亥），所得地支即卦身。
+    - 阴爻持世：从初爻起午，顺数至世位（午未申酉戌亥子丑寅卯辰巳），所得地支即卦身。
+
+    返回: {"卦身地支": str, "卦身爻位": int or None, "说明": str}
+    """
+    shi_yao = ben_lines[shi_pos - 1]  # "阳" or "阴"
+
+    if shi_yao == "阳":
+        guashen_zhi = DIZHI[(shi_pos - 1) % 12]
+    else:
+        guashen_zhi = DIZHI[(6 + shi_pos - 1) % 12]
+
+    # 在纳支中查找该地支所在的爻位
+    guashen_yao = None
+    for i, zhi in enumerate(ben_nazhi):
+        if zhi == guashen_zhi:
+            guashen_yao = i + 1
+            break
+
+    if guashen_yao:
+        return {
+            "卦身地支": guashen_zhi,
+            "卦身爻位": guashen_yao,
+            "说明": f"世爻{'阳' if shi_yao == '阳' else '阴'}爻持世，从初爻起{'子' if shi_yao == '阳' else '午'}顺数至第{shi_pos}爻（世位），得{guashen_zhi}，即卦身在第{guashen_yao}爻。",
+        }
+    else:
+        return {
+            "卦身地支": guashen_zhi,
+            "卦身爻位": None,
+            "说明": f"世爻{'阳' if shi_yao == '阳' else '阴'}爻持世，从初爻起{'子' if shi_yao == '阳' else '午'}顺数至第{shi_pos}爻（世位），得{guashen_zhi}，但该支不上卦，卦身不现。",
+        }
+
+
 # =============================================================================
 # 六爻装卦（完整流程）
 # =============================================================================
@@ -1324,6 +1480,7 @@ def liuyao_zhuanggua(hexagram_result: dict, day_ganzhi: str,
             "变卦爻": hexagram_result["变卦阴阳爻"][i],
             "是否动爻": yao_num in dongyao,
             "纳支": ben_nazhi[i],
+            "五行": DIZHI_WUXING[ben_nazhi[i]],
             "纳甲": ben_nazhi_full[i],
             "六亲": ben_liuqin[i],
             "六兽": liushou[i],
@@ -1428,6 +1585,26 @@ def liuyao_zhuanggua(hexagram_result: dict, day_ganzhi: str,
         if month_zhi and get_dizhi_liuchong(z, month_zhi):
             flags.append("月破")
             desc.append(f"{z}与月建{month_zhi}六冲 → 月破（当月力量被冲散，当前无法起作用）")
+        # 月生 — 月建五行生爻支五行
+        if month_zhi and zwx and DIZHI_WUXING[month_zhi]:
+            mwx = DIZHI_WUXING[month_zhi]
+            if wuxing_sheng(mwx) == zwx:
+                flags.append("月生")
+                desc.append(f"月建{month_zhi}({mwx})生{yao['爻位']}{z}({zwx}) → 月令生扶，力量增强")
+        # 月克 — 月建五行克爻支五行
+        if month_zhi and zwx and DIZHI_WUXING[month_zhi]:
+            mwx = DIZHI_WUXING[month_zhi]
+            if wuxing_ke(mwx) == zwx:
+                flags.append("月克")
+                desc.append(f"月建{month_zhi}({mwx})克{yao['爻位']}{z}({zwx}) → 月令压制，力量减弱")
+        # 月合 — 月建与爻支六合
+        if month_zhi and get_dizhi_liuhe(z, month_zhi):
+            flags.append("月合")
+            desc.append(f"{z}与月建{month_zhi}六合 → 月令合住，有帮扶/羁绊")
+        # 临月建 — 爻支等于月建地支
+        if month_zhi and z == month_zhi:
+            flags.append("临月建")
+            desc.append(f"{z}临月建 → 当令而旺，力量最强")
         # 日冲 — 需要区分暗动和日破
         # 重要: 暗动仅适用于静爻。明动爻(6/9)被日冲仅为普通冲，不算暗动。
         if get_dizhi_liuchong(z, day_zhi):
@@ -1514,6 +1691,24 @@ def liuyao_zhuanggua(hexagram_result: dict, day_ganzhi: str,
     yongshen = _find_yongshen_yao(ben_liuqin, shi_pos)
     yingqi = _calc_yingqi(yongshen.get("用神爻"), richu_fenxi, xk_list)
 
+    # 卦身计算
+    guashen = get_guashen(hexagram_result["本卦阴阳爻"], shi_pos, ben_nazhi)
+
+    # 综合断语
+    zonghe_duanyu = liuyao_zonghe_duanyu({
+        "卦宫": palace,
+        "卦宫五行": PALACE_WUXING[palace],
+        "爻辞": yao_details,
+        "用神分析": yongshen,
+        "特殊卦象": special_signals,
+        "三合局": sanhe_analysis,
+        "伏神": fushen_info,
+        "日辰互动": richu_fenxi,
+        "本卦": ben_gua,
+        "世爻位置": shi_pos,
+        "应爻位置": shiying["应爻"],
+    })
+
     return {
         "卦宫": palace,
         "卦宫五行": PALACE_WUXING[palace],
@@ -1533,6 +1728,8 @@ def liuyao_zhuanggua(hexagram_result: dict, day_ganzhi: str,
         "伏神": fushen_info,
         "特殊卦象": special_signals,
         "三合局": sanhe_analysis,
+        "卦身": guashen,
+        "综合断语": zonghe_duanyu,
     }
 
 
@@ -1622,6 +1819,203 @@ def _calc_yingqi(yongshen_yao: dict, ri_chen: dict, xun_kong: list) -> dict:
         rules.append("用神无特殊信号，近期即可应事")
 
     return {"应期规则": rules, "说明": "以上为传统应期五法推断，具体应期需结合卦象综合判断"}
+
+
+def _generate_advice(grade: str, yongshen: dict) -> str:
+    """
+    根据断语等级和用神状态生成建议。
+    """
+    yongshen_type = yongshen.get("用神类型", "") if yongshen else ""
+    yongshen_hint = yongshen.get("提示", "") if yongshen else ""
+
+    advice_map = {
+        "大吉": f"运势极佳，所求之事大概率如愿。{'宜积极行动，把握时机。' if yongshen_type not in ('官鬼',) else '事业/考试/官运当前极为有利，宜全力以赴。'}",
+        "小吉": f"总体向好，细节上有小波折但可化解。{'稳扎稳打，不可冒进。' if yongshen_type in ('妻财',) else '按部就班即可，注意细节。'}",
+        "平": f"吉凶参半，结果取决于自身努力和外部时机。建议耐心等待，待出空/逢生扶之时再动。",
+        "小凶": f"阻力较大，需谨慎行事。{'财/感情方面宜守不宜攻，避免大额投入。' if yongshen_type in ('妻财',) else '暂时不宜贸然行动，宜静观其变。'}",
+        "大凶": f"当前极为不利，切忌冒进。{'建议暂缓决策，等待时机转好。' if yongshen_type not in ('官鬼',) else '事业/官运方面需格外谨慎，避免冲突。'}",
+    }
+
+    return advice_map.get(grade, advice_map["平"]) + f"（用神：{yongshen_type}）"
+
+
+def liuyao_zonghe_duanyu(zhuanggua_result: dict) -> dict:
+    """
+    六爻综合断语：整合用神、特殊卦象、三合局、伏神、日辰互动，
+    输出结构化判断结果。
+
+    返回: {"等级": str, "断语": str, "理由": [str], "建议": str}
+    """
+    reasons = []
+    good_count = 0
+    bad_count = 0
+
+    yongshen = zhuanggua_result.get("用神分析", {})
+    yao_details = zhuanggua_result.get("爻辞", [])
+    special_signals = zhuanggua_result.get("特殊卦象", [])
+    sanhe = zhuanggua_result.get("三合局", [])
+    fushen = zhuanggua_result.get("伏神", [])
+    richu = zhuanggua_result.get("日辰互动", [])
+    shi_pos = zhuanggua_result.get("世爻位置", 1)
+
+    # --- 1. 用神分析 ---
+    ys_yao = yongshen.get("用神爻")
+    if ys_yao is None:
+        reasons.append("用神不上卦 → 伏神待出，所求之事当前不明朗")
+        bad_count += 2
+    else:
+        ys_idx = ys_yao["爻号"] - 1
+        ys_detail = yao_details[ys_idx] if 0 <= ys_idx < len(yao_details) else {}
+        ri_guanxi = ys_detail.get("日辰关系", "")
+        if ys_yao["爻号"] == shi_pos:
+            reasons.append(f"世爻即为用神({ys_yao['六亲']})，自身即是所求之事")
+        else:
+            reasons.append(f"用神{ys_yao['六亲']}在第{ys_yao['爻号']}爻")
+
+        # 用神旺衰
+        if "月破" in ri_guanxi:
+            reasons.append("用神月破 → 力量被冲散，本月难成")
+            bad_count += 2
+        if "旬空" in ri_guanxi:
+            reasons.append("用神旬空 → 当前无着落，需待出空")
+            bad_count += 1
+        if "暗动" in ri_guanxi:
+            reasons.append("用神暗动 → 虽静而被日辰激发，暗中发动")
+            good_count += 1
+        if "日破" in ri_guanxi:
+            reasons.append("用神日破 → 衰弱无力，当前无法发挥作用")
+            bad_count += 2
+        if "日生" in ri_guanxi or "月生" in ri_guanxi:
+            reasons.append("用神得日/月相生 → 有外部助力，旺")
+            good_count += 1
+        if "日克" in ri_guanxi or "月克" in ri_guanxi:
+            reasons.append("用神被日/月相克 → 受压制，力量不足")
+            bad_count += 1
+        if "临月建" in ri_guanxi or "临日辰" in ri_guanxi:
+            reasons.append("用神临日/月建 → 当令而旺，力量充足")
+            good_count += 2
+        # 用神动变关系
+        if ys_detail.get("是否动爻"):
+            dongbian = ys_detail.get("动变关系", "")
+            if dongbian == "回头生":
+                reasons.append("用神动化回头生 → 力量源源不断注入，大吉")
+                good_count += 2
+            elif dongbian == "回头克":
+                reasons.append("用神动化回头克 → 自身动而反被克制，凶")
+                bad_count += 2
+            elif dongbian == "化进神":
+                reasons.append("用神化进神 → 力量步步增强，吉")
+                good_count += 1
+            elif dongbian == "化退神":
+                reasons.append("用神化退神 → 力量衰退，先好后差")
+                bad_count += 1
+
+    # --- 2. 世爻旺衰 ---
+    shi_yao = yao_details[shi_pos - 1] if 0 <= shi_pos - 1 < len(yao_details) else {}
+    shi_guanxi = shi_yao.get("日辰关系", "")
+    if "月破" in shi_guanxi:
+        reasons.append("世爻月破 → 自身力量被冲散，本月运势低落")
+        bad_count += 2
+    if "旬空" in shi_guanxi:
+        reasons.append("世爻旬空 → 自身心力不足，虚无缥缈")
+        bad_count += 1
+    if "暗动" in shi_guanxi:
+        reasons.append("世爻暗动 → 自身被激发行事")
+        good_count += 1
+    if "日破" in shi_guanxi:
+        reasons.append("世爻日破 → 自身衰弱，无力行事")
+        bad_count += 2
+    if "临月建" in shi_guanxi or "临日辰" in shi_guanxi:
+        reasons.append("世爻临日/月建 → 自身当令而旺，气势足")
+        good_count += 2
+
+    # --- 3. 特殊卦象 ---
+    for sig in special_signals:
+        sig_type = sig.get("类型", "")
+        sig_yi = sig.get("含义", "")
+        if sig_type in ("六合卦", "归魂卦"):
+            reasons.append(f"【{sig_type}】{sig_yi}")
+            good_count += 1
+        elif sig_type in ("六冲卦", "反吟", "伏吟", "游魂卦"):
+            reasons.append(f"【{sig_type}】{sig_yi}")
+            bad_count += 1
+        elif sig_type in ("全动", "独发", "独静"):
+            reasons.append(f"【{sig_type}】{sig_yi}")
+        elif sig_type == "静卦(全静)":
+            reasons.append(f"【{sig_type}】{sig_yi}")
+
+    # --- 4. 三合局 ---
+    if sanhe:
+        for s in sanhe:
+            wx = s.get("化气", "")
+            if wx:
+                reasons.append(f"【三合局】{s['组合']}合{wx}局成立 → 力量集中，{'吉利' if any(kw in wx for kw in ['火','木','水','金','土']) else '需看局与用神之关系'}")
+                # 三合局化气与用神关系
+                ys_type = yongshen.get("用神类型", "")
+                ys_wx = {"父母": "水", "官鬼": "火", "妻财": "金", "子孙": "木", "兄弟": "土"}
+                # Approximate: 合出之五行
+                wx_extracted = wx.replace("合", "").replace("局", "")
+                if ys_type and wx_extracted:
+                    ys_expected_wx = ys_wx.get(ys_type, "")
+                    if ys_expected_wx and wx_extracted == ys_expected_wx:
+                        reasons.append("三合局化气与用神同类 → 对所求之事极为有利")
+                        good_count += 2
+                    elif ys_expected_wx:
+                        rel = wuxing_relation(ys_expected_wx, wx_extracted)
+                        if rel in ("a被b生", "同"):
+                            reasons.append(f"三合局化气{'生用神' if rel == 'a被b生' else '与用神比和'} → 有利")
+                            good_count += 1
+                        elif rel in ("a被b克", "a克b"):
+                            reasons.append(f"三合局化气{'克用神' if rel == 'a被b克' else '被用神所克'} → 不利")
+                            bad_count += 1
+
+    # --- 5. 伏神 ---
+    if fushen:
+        for fs in fushen:
+            rel = fs.get("伏飞关系", "")
+            lq = fs.get("六亲", "")
+            if "吉" in rel or "长生" in rel:
+                reasons.append(f"【伏神】{lq}伏藏，{rel}")
+                good_count += 1
+            elif "凶" in rel or "压制" in rel:
+                reasons.append(f"【伏神】{lq}伏藏，{rel}")
+                bad_count += 1
+            else:
+                reasons.append(f"【伏神】{lq}伏藏，{rel}")
+
+    # --- 等级判定 ---
+    net = good_count - bad_count
+    if net >= 4:
+        grade = "大吉"
+    elif net >= 1:
+        grade = "小吉"
+    elif net >= -1:
+        grade = "平"
+    elif net >= -3:
+        grade = "小凶"
+    else:
+        grade = "大凶"
+
+    # --- 生成断语 ---
+    grade_desc = {
+        "大吉": "卦象总体大吉，天时地利人和，所求之事大概率顺利达成。",
+        "小吉": "卦象总体偏吉，虽有波折但最终向好，宜积极应对。",
+        "平": "卦象吉凶参半，成败取决于自身努力和外部时机，宜耐心等待。",
+        "小凶": "卦象总体偏凶，阻力较大，宜保守行事，暂避锋芒。",
+        "大凶": "卦象总体大凶，当前极为不利，切忌冒进，宜静观其变，待时而动。",
+    }
+
+    duanyu = grade_desc[grade]
+
+    advice = _generate_advice(grade, yongshen)
+
+    return {
+        "等级": grade,
+        "断语": duanyu,
+        "理由": reasons,
+        "建议": advice,
+        "评分详情": {"吉数": good_count, "凶数": bad_count, "净值": net},
+    }
 
 
 def _find_fushen(ben_gua: dict, ben_liuqin: list, ben_nazhi: list, ben_nazhi_full: list) -> list:

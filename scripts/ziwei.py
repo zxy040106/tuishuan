@@ -693,6 +693,51 @@ def an_posui(birth_month: int) -> dict:
     return {DIZHI[(DIZHI.index("巳") + (birth_month - 1)) % 12]: ["破碎"]}
 
 
+def an_yuema(year_zhi: str) -> dict:
+    """
+    安月马: 天马的对宫（+6位）。
+    月马为驿马之对宫，主动中藏静之意。
+    """
+    tianma_map = {
+        ("申","子","辰"): "寅",
+        ("亥","卯","未"): "巳",
+        ("寅","午","戌"): "申",
+        ("巳","酉","丑"): "亥",
+    }
+    for sanhe, ma_zhi in tianma_map.items():
+        if year_zhi in sanhe:
+            yuema_zhi = DIZHI[(DIZHI.index(ma_zhi) + 6) % 12]
+            return {yuema_zhi: ["月马"]}
+    return {}
+
+
+def an_tianguan(year_gan: str) -> dict:
+    """安天官: 按年干。主官禄、职位、名望。"""
+    tianguan_map = {
+        "甲":"未","乙":"辰","丙":"巳","丁":"寅","戊":"卯",
+        "己":"酉","庚":"亥","辛":"酉","壬":"戌","癸":"午",
+    }
+    zhi = tianguan_map.get(year_gan, "")
+    return {zhi: ["天官"]} if zhi else {}
+
+
+def an_tianfu_xing(year_gan: str) -> dict:
+    """安天福: 按年干。主福气、享受、祖荫。（注意：天福星，非天府星）"""
+    tianfu_map = {
+        "甲":"酉","乙":"申","丙":"子","丁":"亥","戊":"卯",
+        "己":"寅","庚":"辰","辛":"午","壬":"巳","癸":"未",
+    }
+    zhi = tianfu_map.get(year_gan, "")
+    return {zhi: ["天福"]} if zhi else {}
+
+
+def an_tianshou(year_zhi: str) -> dict:
+    """安天寿: 按年支。申起子年顺行。主长寿、福寿。"""
+    year_idx = DIZHI.index(year_zhi)
+    shou_zhi = DIZHI[(DIZHI.index("申") + year_idx) % 12]
+    return {shou_zhi: ["天寿"]}
+
+
 # =============================================================================
 # 博士十二神 — 从禄存宫起，阳男阴女顺行、阴男阳女逆行
 # =============================================================================
@@ -1086,29 +1131,127 @@ def an_dikong_dijie(birth_hour_zhi: str) -> dict:
 
 
 # =============================================================================
+# 三方四正
+# =============================================================================
+
+def get_sanfang_sizheng(gong_idx: int) -> dict:
+    """
+    返回任意宫位的三方四正关系。
+
+    三方: 本宫 + 三合宫（每相隔4宫，即 ±4 的两个宫）
+    四正: 三方 + 对宫（相差6宫）
+
+    参数:
+        gong_idx: PALACES 数组索引（0=命宫, 1=兄弟, ..., 11=父母）
+
+    返回:
+        {
+            "本宫": PALACES[gong_idx],
+            "对宫": PALACES[(gong_idx + 6) % 12],
+            "三合宫": [PALACES[(gong_idx + 4) % 12], PALACES[(gong_idx - 4) % 12]],
+            "三方四正": [本宫, 对宫, 三合宫[0], 三合宫[1]],
+        }
+    """
+    ben_gong = PALACES[gong_idx]
+    dui_gong = PALACES[(gong_idx + 6) % 12]
+    sanhe_1 = PALACES[(gong_idx + 4) % 12]
+    sanhe_2 = PALACES[(gong_idx - 4) % 12]
+
+    return {
+        "本宫": ben_gong,
+        "对宫": dui_gong,
+        "三合宫": [sanhe_1, sanhe_2],
+        "三方四正": [ben_gong, dui_gong, sanhe_1, sanhe_2],
+    }
+
+
+# =============================================================================
 # 四化
 # =============================================================================
 
-def an_sihua(year_gan: str) -> dict:
-    """按年干定四化落在哪颗星上。"""
-    sihua_map = {
-        "甲": (("廉贞","禄"),("破军","权"),("武曲","科"),("太阳","忌")),
-        "乙": (("天机","禄"),("天梁","权"),("紫微","科"),("太阴","忌")),
-        "丙": (("天同","禄"),("天机","权"),("文昌","科"),("廉贞","忌")),
-        "丁": (("太阴","禄"),("天同","权"),("天机","科"),("巨门","忌")),
-        "戊": (("贪狼","禄"),("太阴","权"),("右弼","科"),("天机","忌")),
-        "己": (("武曲","禄"),("贪狼","权"),("天梁","科"),("文曲","忌")),
-        "庚": (("太阳","禄"),("武曲","权"),("太阴","科"),("天同","忌")),
-        "辛": (("巨门","禄"),("太阳","权"),("文曲","科"),("文昌","忌")),
-        "壬": (("天梁","禄"),("紫微","权"),("左辅","科"),("武曲","忌")),
-        "癸": (("破军","禄"),("巨门","权"),("太阴","科"),("贪狼","忌")),
-    }
+# 天干四化查找表（共享表）
+_SIHUA_BY_GAN = {
+    "甲": (("廉贞","禄"),("破军","权"),("武曲","科"),("太阳","忌")),
+    "乙": (("天机","禄"),("天梁","权"),("紫微","科"),("太阴","忌")),
+    "丙": (("天同","禄"),("天机","权"),("文昌","科"),("廉贞","忌")),
+    "丁": (("太阴","禄"),("天同","权"),("天机","科"),("巨门","忌")),
+    "戊": (("贪狼","禄"),("太阴","权"),("右弼","科"),("天机","忌")),
+    "己": (("武曲","禄"),("贪狼","权"),("天梁","科"),("文曲","忌")),
+    "庚": (("太阳","禄"),("武曲","权"),("太阴","科"),("天同","忌")),
+    "辛": (("巨门","禄"),("太阳","权"),("文曲","科"),("文昌","忌")),
+    "壬": (("天梁","禄"),("紫微","权"),("左辅","科"),("武曲","忌")),
+    "癸": (("破军","禄"),("巨门","权"),("太阴","科"),("贪狼","忌")),
+}
 
-    year_sihua = sihua_map.get(year_gan, ())
+def _sihua_by_gan(gan: str) -> dict:
+    """共享四化查找：返回 {化名: 星名}"""
+    year_sihua = _SIHUA_BY_GAN.get(gan, ())
     result = {}
     for star, hua in year_sihua:
         result[hua] = star
     return result
+
+def an_sihua(year_gan: str) -> dict:
+    """按年干定四化落在哪颗星上。"""
+    return _sihua_by_gan(year_gan)
+
+def an_liunian_sihua(liunian_gan: str) -> dict:
+    """流年四化：按流年天干定四化。"""
+    return _sihua_by_gan(liunian_gan)
+
+def an_daxian_sihua(daxian_gong_gan: str) -> dict:
+    """大限四化：按大限宫位天干定四化。"""
+    return _sihua_by_gan(daxian_gong_gan)
+
+
+# =============================================================================
+# 小限
+# =============================================================================
+
+def an_xiaoxian(minggong_idx: int, gender: str, nian_gan: str, current_age: int) -> dict:
+    """
+    排小限（流年岁限）。
+    规则：
+    - 阳男/阴女 → 顺行 → 命宫起1岁，每增一岁行一宫（顺数）
+    - 阴男/阳女 → 逆行 → 命宫起1岁，每增一岁行一宫（逆数）
+
+    十二宫走一圈后循环（13岁回到命宫原点再走一轮）。
+
+    参数:
+        minggong_idx: 命宫在 PALACES 中的索引 (0-11)
+        gender: "男" 或 "女"
+        nian_gan: 生年年干
+        current_age: 当前周岁年龄
+
+    返回:
+        {
+            "顺逆": "顺行" 或 "逆行",
+            "小限宫位": {年龄: 宫名, ...} (所有12个位置),
+            "当前小限": 宫名,
+        }
+    """
+    nian_yy = TIANGAN_YINYANG[nian_gan]
+    is_shun = (nian_yy == "阳" and gender == "男") or (nian_yy == "阴" and gender == "女")
+
+    # 命宫起1岁，每10年一个循环
+    positions = {}
+    for i in range(12):
+        age = i + 1  # 1-12岁
+        if is_shun:
+            gong_idx = (minggong_idx + i) % 12
+        else:
+            gong_idx = (minggong_idx - i) % 12
+        positions[age] = PALACES[gong_idx]
+
+    # 当前年龄对应的小限宫（每12年一轮回）
+    cycle_age = ((current_age - 1) % 12) + 1
+    current_gong = positions.get(cycle_age, PALACES[minggong_idx])
+
+    return {
+        "顺逆": "顺行" if is_shun else "逆行",
+        "小限宫位": positions,
+        "当前小限": current_gong,
+    }
 
 
 # =============================================================================
@@ -1165,7 +1308,8 @@ def an_daxian(minggong_zhi: str, wuxing_ju_num: int, gender: str,
 
 def ziwei_pailiang(year: int, month: int, day: int, hour: int,
                    gender: str = "未知",
-                   lunar_month: int = None, lunar_day: int = None) -> dict:
+                   lunar_month: int = None, lunar_day: int = None,
+                   liunian_gan: str = None, liunian_zhi: str = None) -> dict:
     """
     紫微斗数完整排盘。
 
@@ -1173,6 +1317,7 @@ def ziwei_pailiang(year: int, month: int, day: int, hour: int,
     - year, month, day, hour: 公历出生时间
     - gender: '男' or '女'
     - lunar_month, lunar_day: 如果已知农历月日可直接传入, 否则用公历近似
+    - liunian_gan, liunian_zhi: 流年天干地支，默认当年
     """
     # 子时(23:00-23:59)按传统规则属次日, 日期需+1天
     if hour == 23:
@@ -1264,6 +1409,11 @@ def ziwei_pailiang(year: int, month: int, day: int, hour: int,
     lf_stars = an_longchi_fengge(year_zhi)
     hg_stars = an_huagai(year_zhi)
     xc_stars = an_xianchi(year_zhi)
+    yuema_stars = an_yuema(year_zhi)
+    tshou_stars = an_tianshou(year_zhi)
+    # 年干起星
+    tguan_stars = an_tianguan(year_gan)
+    tfu_stars = an_tianfu_xing(year_gan)
     # 月支起星
     tx_stars = an_tianxing(lunar_month)
     js_stars = an_jieshen(lunar_month)
@@ -1284,8 +1434,8 @@ def ziwei_pailiang(year: int, month: int, day: int, hour: int,
 
     # 流年十二神：按当前流年地支起
     current_liunian = get_year_ganzhi(datetime.now())
-    liunian_zhi = split_ganzhi(current_liunian)[1] if current_liunian else "子"
-    liunian_stars = an_liunian_shen(liunian_zhi)
+    liunian_zhi_for_shen = split_ganzhi(current_liunian)[1] if current_liunian else "子"
+    liunian_stars = an_liunian_shen(liunian_zhi_for_shen)
 
     # 20. 汇总每宫星曜
     all_stars = {}  # {zhi: {main: [...], aux: [...]}}
@@ -1301,6 +1451,7 @@ def ziwei_pailiang(year: int, month: int, day: int, hour: int,
     for star_dict in [cc_stars, zy_stars, ky_stars, lt_stars, qt_stars, hl_stars, kj_stars,
                       hl_tx_stars, ty_stars, tx_stars, js_stars, tw_stars, ys_stars, sb_stars, eg_stars,
                       gc_stars, kx_stars, lf_stars, hg_stars, xc_stars, fl_stars, ps_stars,
+                      yuema_stars, tshou_stars, tguan_stars, tfu_stars,
                       boshi_stars, changsheng_stars, liunian_stars]:
         for zhi, names in star_dict.items():
             all_stars[zhi]["辅星"].extend(names)
@@ -1345,7 +1496,33 @@ def ziwei_pailiang(year: int, month: int, day: int, hour: int,
     # 22. 大限
     daxian = an_daxian(minggong_zhi, wx_ju_num, gender, year_gan)
 
-    # 23. 格局检测
+    # 23. 流年四化和大限四化
+    if liunian_gan is None or liunian_zhi is None:
+        current_liunian = get_year_ganzhi(datetime.now())
+        liunian_gan_final = liunian_gan if liunian_gan else split_ganzhi(current_liunian)[0]
+        liunian_zhi_final = liunian_zhi if liunian_zhi else split_ganzhi(current_liunian)[1]
+    else:
+        liunian_gan_final = liunian_gan
+        liunian_zhi_final = liunian_zhi
+    liunian_sihua = an_liunian_sihua(liunian_gan_final)
+
+    # 大限四化：按当前大限宫位的天干
+    current_age_for_dx = datetime.now().year - year
+    daxian_sihua = {}
+    current_daxian_gong = "命宫"
+    for pal_name, dx_info in daxian.get("大限", {}).items():
+        qi_yun = dx_info.get("起运", 0)
+        if qi_yun <= current_age_for_dx < qi_yun + 10:
+            current_daxian_gong = pal_name
+            daxian_gong_gan = split_ganzhi(shiergong_ganzhi[pal_name])[0]
+            daxian_sihua = an_daxian_sihua(daxian_gong_gan)
+            break
+
+    # 24. 小限
+    minggong_idx = PALACES.index("命宫")
+    xiaoxian = an_xiaoxian(minggong_idx, gender, year_gan, current_age_for_dx)
+
+    # 25. 格局检测
     result = {
         "命宫": minggong_zhi,
         "命宫干支": minggong_gz,
@@ -1354,7 +1531,11 @@ def ziwei_pailiang(year: int, month: int, day: int, hour: int,
         "天府星落宫": tianfu_zhi,
         "十二宫": palaces_full,
         "四化": sihua,
+        "流年四化": liunian_sihua,
+        "大限四化": daxian_sihua,
+        "当前大限宫": current_daxian_gong,
         "大限": daxian,
+        "小限": xiaoxian,
         "身宫": shengong_zhi,
         "身主": shenzhu,
         "命主": mingzhu,
@@ -1425,10 +1606,25 @@ def verify_ziwei(result: dict) -> list:
     if len(sihua) != 4:
         issues.append(f"四化数量异常: {len(sihua)} (应为4)")
 
+    # 流年四化
+    ln_sihua = result.get("流年四化", {})
+    if len(ln_sihua) != 4:
+        issues.append(f"流年四化数量异常: {len(ln_sihua)} (应为4)")
+
+    # 大限四化
+    dx_sihua = result.get("大限四化", {})
+    if len(dx_sihua) not in (0, 4):
+        issues.append(f"大限四化数量异常: {len(dx_sihua)} (应为0或4)")
+
     # 大限
     daxian = result.get("大限", {})
     if not daxian.get("大限"):
         issues.append("缺少大限信息")
+
+    # 小限
+    xiaoxian = result.get("小限", {})
+    if not xiaoxian.get("当前小限"):
+        issues.append("缺少小限信息")
 
     return issues
 
@@ -1452,6 +1648,10 @@ if __name__ == "__main__":
     print(f"紫微星: {result['紫微星落宫']}")
     print(f"天府星: {result['天府星落宫']}")
     print(f"四化: {result['四化']}")
+    print(f"流年四化: {result['流年四化']}")
+    print(f"大限四化: {result['大限四化']}")
+    print(f"当前大限宫: {result['当前大限宫']}")
+    print(f"小限: {result['小限']['当前小限']} ({result['小限']['顺逆']})")
     print(f"大限: {result['大限']['顺逆']}")
 
     print("\n十二宫:")

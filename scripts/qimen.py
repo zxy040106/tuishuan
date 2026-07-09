@@ -410,6 +410,28 @@ def check_ge_patterns(dipan: dict, tianpan_gan: dict) -> list:
         ("辛","丙"): ("干合悖师","事情有变，需灵活应对","凶"),
         ("壬","戊"): ("小蛇化龙","从小变大，事情向好发展","吉"),
         ("癸","戊"): ("天乙会合","贵人暗助，事情可成","吉"),
+        # 新补充格局
+        ("乙","丙"): ("日奇入墓","日奇乙临丙，光明受阻，宜静不宜动","凶"),
+        ("丙","乙"): ("月奇入墓","月奇丙临乙，阴柔过甚，难展宏图","凶"),
+        ("丁","乙"): ("星奇受阻","星奇丁临乙，文书有阻，消息不通","凶"),
+        ("癸","庚"): ("地网高张","障碍重重，进退两难","凶"),
+        ("庚","乙"): ("凶蛇入狱","困局难解，宜退不宜进","凶"),
+        ("己","癸"): ("螣蛇相缠","口舌是非，被小人纠缠","凶"),
+        ("癸","壬"): ("天网四张","大网笼罩，决断需谨慎","凶"),
+        ("庚","丁"): ("太白逢星","革故鼎新之机，因败为成","中平"),
+        ("庚","辛"): ("太白受制","强敌被制，事情有转机","中平"),
+        ("壬","丙"): ("白虎出力","威武猛进，宜快不宜慢","吉"),
+        ("己","丁"): ("小蛇入狱","小有磨难，终能化解","中平"),
+        ("丁","庚"): ("星奇受制","文书有阻，谋事不顺","凶"),
+        ("辛","庚"): ("白虎逢格","两金相争，斗则俱伤","凶"),
+        ("乙","壬"): ("日奇逢格","贵人有碍，事缓则圆","中平"),
+        ("乙","癸"): ("日奇入网","贵人被困，宜暗中行事","中平"),
+        ("丙","壬"): ("月奇逢格","波折反复，需耐心等候","凶"),
+        ("丙","癸"): ("月奇入网","小人暗算，宜防口舌","凶"),
+        ("丁","壬"): ("星奇逢合","合作有喜，文书得利","吉"),
+        ("己","壬"): ("刑格小格","刑伤之事，可大可小","凶"),
+        ("壬","己"): ("小格返刑","先阻后顺，宜坚持","中平"),
+        ("癸","辛"): ("天网逢狱","多凶少吉，宜安分守己","凶"),
     }
     result = []
     for gong in range(1, 10):
@@ -468,14 +490,414 @@ def bu_shenpan(zhifu_gong: int, is_yang: bool) -> dict:
 
 
 # =============================================================================
+# 应期计算
+# =============================================================================
+
+def calc_yingqi(palaces, ri_gan_gong, shi_gan_gong, mubiao_gong=None):
+    """
+    计算应期（事情发生的时间）。
+
+    规则：
+    1. 目标宫的地支 → 对应月份/日期即为应期
+    2. 日干宫与目标宫之间的距离（宫数）→ 对应天数/月数/年数
+
+    返回: dict
+    """
+    GONG_DIZHI = {
+        1: ["子"], 8: ["丑", "寅"], 3: ["卯"], 4: ["辰", "巳"],
+        9: ["午"], 2: ["未", "申"], 7: ["酉"], 6: ["戌", "亥"],
+    }
+    DIZHI_MONTH = {
+        "寅": 1, "卯": 2, "辰": 3, "巳": 4, "午": 5, "未": 6,
+        "申": 7, "酉": 8, "戌": 9, "亥": 10, "子": 11, "丑": 12,
+    }
+
+    target_gong = mubiao_gong or shi_gan_gong
+    if target_gong is None:
+        return {"应期判断": "无法确定（缺目标宫）"}
+
+    result = {
+        "目标宫": f"第{target_gong}宫",
+        "目标宫地支": GONG_DIZHI.get(target_gong, []),
+    }
+
+    # 距离计算（洛书九宫步数，跳过5宫）
+    LUOSHU_ORDER = [1, 2, 3, 4, 6, 7, 8, 9]
+    try:
+        idx1 = LUOSHU_ORDER.index(ri_gan_gong) if ri_gan_gong in LUOSHU_ORDER else 0
+        idx2 = LUOSHU_ORDER.index(target_gong) if target_gong in LUOSHU_ORDER else 0
+        distance = min(abs(idx2 - idx1), 8 - abs(idx2 - idx1)) + 1
+    except Exception:
+        distance = 1
+
+    result["距离(宫数)"] = distance
+
+    # 应期推算
+    yingqi_texts = []
+    for dz in result["目标宫地支"]:
+        m = DIZHI_MONTH.get(dz, 0)
+        yingqi_texts.append(f"{dz}月(农历{m}月)")
+    result["应期月"] = yingqi_texts
+
+    dz_str = ",".join(result["目标宫地支"]) if result["目标宫地支"] else "未知"
+    result["应期判断"] = f"逢{dz_str}日/月为应期; 约{distance}日/月/年"
+
+    return result
+
+
+# =============================================================================
+# 马星（驿马）
+# =============================================================================
+
+def get_maxing(shichen_zhi):
+    """
+    获取马星落宫。
+
+    申子辰 → 寅 (8艮), 亥卯未 → 巳 (4巽),
+    寅午戌 → 申 (2坤), 巳酉丑 → 亥 (6乾)
+
+    返回: dict with 马星地支, 马星落宫
+    """
+    MAXING_MAP = {
+        "申": ("寅", 8), "子": ("寅", 8), "辰": ("寅", 8),
+        "亥": ("巳", 4), "卯": ("巳", 4), "未": ("巳", 4),
+        "寅": ("申", 2), "午": ("申", 2), "戌": ("申", 2),
+        "巳": ("亥", 6), "酉": ("亥", 6), "丑": ("亥", 6),
+    }
+    zhi, gong = MAXING_MAP.get(shichen_zhi, ("寅", 8))
+    return {
+        "马星地支": zhi,
+        "马星落宫": gong,
+        "马星所在": f"第{gong}宫({GONG_POS[gong]['name']})",
+    }
+
+
+# =============================================================================
+# 五不遇时
+# =============================================================================
+
+def check_wubuyushi(ri_gan, shi_gan):
+    """
+    检查五不遇时：时干克日干 = 五不遇时，凶。
+
+    返回: (是否五不遇时: bool, 描述: str)
+    """
+    GAN_WUXING = {
+        "甲": "木", "乙": "木", "丙": "火", "丁": "火", "戊": "土",
+        "己": "土", "庚": "金", "辛": "金", "壬": "水", "癸": "水",
+    }
+    WUXING_KE = {"木": "土", "土": "水", "水": "火", "火": "金", "金": "木"}
+
+    ri_wx = GAN_WUXING.get(ri_gan, "")
+    shi_wx = GAN_WUXING.get(shi_gan, "")
+
+    is_wubuyu = WUXING_KE.get(shi_wx, "") == ri_wx
+    if is_wubuyu:
+        desc = f"时干{shi_gan}({shi_wx})克日干{ri_gan}({ri_wx}) — 五不遇时，诸事不宜"
+    else:
+        desc = f"时干{shi_gan}({shi_wx})不克日干{ri_gan}({ri_wx}) — 非五不遇时"
+
+    return is_wubuyu, desc
+
+
+# =============================================================================
+# 六仪击刑
+# =============================================================================
+
+def check_liuyi_jixing(dipan):
+    """
+    检查六仪击刑：六仪（戊己庚辛壬癸）在地盘上的击刑。
+
+    规则：
+    - 戊(甲子)在震3宫 → 子刑卯
+    - 己(甲戌)在坤2宫 → 戌刑未
+    - 庚(甲申)在艮8宫 → 申刑寅
+    - 辛(甲午)在离9宫 → 午自刑
+    - 壬(甲辰)在巽4宫 → 辰自刑
+    - 癸(甲寅)在巽4宫 → 寅刑巳
+
+    返回: list of dicts
+    """
+    LIUYI_JIXING_RULES = {
+        "戊": (3, "子卯相刑", "甲子戊在震宫，子卯相刑"),
+        "己": (2, "戌未相刑", "甲戌己在坤宫，戌未相刑"),
+        "庚": (8, "申寅相刑", "甲申庚在艮宫，申寅相刑"),
+        "辛": (9, "午午自刑", "甲午辛在离宫，午午自刑"),
+        "壬": (4, "辰辰自刑", "甲辰壬在巽宫，辰辰自刑"),
+        "癸": (4, "寅巳相刑", "甲寅癸在巽宫，寅巳相刑"),
+    }
+
+    result = []
+    for yi, (expected_gong, xing_name, desc) in LIUYI_JIXING_RULES.items():
+        dg = dipan.get(expected_gong, "")
+        if isinstance(dg, str) and yi in dg:
+            result.append({
+                "六仪": yi,
+                "宫位": f"第{expected_gong}宫",
+                "击刑": xing_name,
+                "说明": desc,
+                "吉凶": "凶",
+            })
+
+    return result
+
+
+# =============================================================================
+# 门迫与宫制分析
+# =============================================================================
+
+def analyze_men_gong(renpan):
+    """
+    分析八门与九宫的生克关系，使用正统奇门遁甲术语。
+
+    术语：
+    - 门迫: 门克宫（门五行克宫五行），凶
+    - 宫制: 宫克门（宫五行克门五行），门被制
+    - 门宫比和: 门与宫五行相同，和谐
+    - 宫生门: 宫五行生门五行，门得生旺
+    - 门生宫: 门五行生宫五行，门泄气
+
+    返回: list of dicts
+    """
+    from utils import wuxing_relation as wx_rel
+
+    result = []
+    for gong_num in [1, 2, 3, 4, 6, 7, 8, 9]:
+        men = renpan.get(gong_num, "")
+        gong_wx = GONG_POS[gong_num]["wuxing"]
+        men_wx = BA_MEN_WUXING.get(men, "")
+        if not men or not men_wx:
+            continue
+
+        rel = wx_rel(men_wx, gong_wx)
+
+        item = {
+            "宫位": GONG_POS[gong_num]["name"],
+            "宫数": gong_num,
+            "八门": men,
+            "门五行": men_wx,
+            "宫五行": gong_wx,
+        }
+
+        if rel == "a克b":
+            item["术语"] = "门迫"
+            item["关系"] = f"{men}({men_wx})克宫({gong_wx}) — 门迫，凶"
+            item["吉凶"] = "凶"
+            item["说明"] = "门克宫为门迫，主事情受阻碍；开门迫宫则事业不顺，生门迫宫则财源受阻"
+        elif rel == "a被b克":
+            item["术语"] = "宫制"
+            item["关系"] = f"宫({gong_wx})克{men}({men_wx}) — 宫制，门被制"
+            item["吉凶"] = "中平"
+            item["说明"] = "宫克门为宫制，门的吉凶力量皆被制约"
+        elif rel == "同":
+            item["术语"] = "门宫比和"
+            item["关系"] = f"{men}({men_wx})与宫({gong_wx})比和 — 门宫相合，和谐"
+            item["吉凶"] = "吉"
+            item["说明"] = "门宫五行相同，配合得当，顺畅无阻"
+        elif rel == "a被b生":
+            item["术语"] = "宫生门"
+            item["关系"] = f"宫({gong_wx})生{men}({men_wx}) — 宫生门，门得生旺"
+            item["吉凶"] = "吉"
+            item["说明"] = "宫生门则门气旺盛，得地利之助"
+        elif rel == "a生b":
+            item["术语"] = "门生宫"
+            item["关系"] = f"{men}({men_wx})生宫({gong_wx}) — 门生宫，门泄气"
+            item["吉凶"] = "中平"
+            item["说明"] = "门生宫则门气泄出，吉门减力，凶门减凶"
+        else:
+            item["术语"] = ""
+            item["关系"] = f"{men}({men_wx})—宫({gong_wx})"
+            item["吉凶"] = ""
+            item["说明"] = ""
+
+        result.append(item)
+
+    return result
+
+
+# =============================================================================
+# 用神落宫分析
+# =============================================================================
+
+def analyze_yongshen(palaces, shi_gan, ri_gan, question, ri_gan_gong=None):
+    """
+    根据问题关键词映射用神目标，分析用神落宫及与日干宫的生克关系。
+
+    参数:
+        palaces: 九宫信息列表
+        shi_gan: 时干
+        ri_gan: 日干
+        question: 用户问题文本
+        ri_gan_gong: 日干落宫号
+
+    返回: dict
+    """
+    from utils import wuxing_relation as wx_rel
+
+    # 用神关键词映射
+    YONGSHEN_KEYWORDS = {
+        "婚姻": (["乙", "庚", "六合"], "乙为女方，庚为男方，六合为媒妁"),
+        "感情": (["乙", "庚", "六合"], "乙为女方，庚为男方"),
+        "恋爱": (["乙", "庚", "六合"], ""),
+        "单身": (["乙", "庚", "六合"], ""),
+        "事业": (["开门", "值符", "日干"], "开门主事业，值符为领导"),
+        "工作": (["开门", "值符", "日干"], ""),
+        "求职": (["开门", "值符", "日干"], ""),
+        "升职": (["开门", "值符", "日干"], ""),
+        "财运": (["生门", "戊", "日干"], "生门主财，戊为资金"),
+        "求财": (["生门", "戊", "日干"], ""),
+        "投资": (["生门", "戊", "日干"], ""),
+        "考试": (["天辅", "丁", "景门"], "天辅主文星，丁为文书，景门主文章"),
+        "学业": (["天辅", "丁", "景门"], ""),
+        "学习": (["天辅", "丁", "日干"], ""),
+        "疾病": (["天芮", "死门", "日干"], "天芮主病星，死门主疾病"),
+        "健康": (["天芮", "日干", "生门"], ""),
+        "身体": (["天芮", "日干", "生门"], ""),
+        "官司": (["惊门", "开门", "日干"], "惊门主官司口舌"),
+        "诉讼": (["惊门", "开门", "日干"], ""),
+        "出行": (["伤门", "日干", "时干"], "伤门主出行变动"),
+        "旅行": (["伤门", "日干", "时干"], ""),
+        "丢失": (["时干", "日干", "杜门"], "时干主失物方位"),
+        "失物": (["时干", "日干", "杜门"], ""),
+        "合作": (["六合", "生门", "日干"], "六合主合作合伙"),
+        "寻人": (["天辅", "时干", "生门"], ""),
+        "怀孕": (["坤宫", "天芮", "生门"], "坤宫主母体孕育"),
+        "生育": (["坤宫", "天芮", "生门"], ""),
+        "交易": (["生门", "戊", "日干"], "生门主交易买卖"),
+        "买卖": (["生门", "戊", "日干"], ""),
+        "调动": (["伤门", "开门", "日干"], "伤门主动，开门主职务"),
+        "搬迁": (["伤门", "生门", "日干"], ""),
+        "谈判": (["惊门", "六合", "日干"], "惊门主争辩，六合主和合"),
+    }
+
+    # 匹配关键词
+    matched_keywords = []
+    matched_yongshen = []
+    for kw, (targets, _) in YONGSHEN_KEYWORDS.items():
+        if kw in question:
+            matched_keywords.append(kw)
+            for t in targets:
+                if t not in matched_yongshen:
+                    matched_yongshen.append(t)
+
+    # 如果没有匹配到，使用默认用神
+    if not matched_yongshen:
+        matched_yongshen = ["日干", "时干", "值符"]
+        matched_keywords = ["通用"]
+
+    # 限制数量
+    matched_yongshen = matched_yongshen[:6]
+
+    # 在各宫中查找用神
+    yongshen_locations = []
+    for ys in matched_yongshen:
+        if not ys:
+            continue
+        locations = []
+
+        for p in palaces:
+            gong_name = p.get("name", "")
+            gong_num = p.get("number", 0)
+
+            # 检查天盘干
+            tgan = p.get("天盘干", "")
+            if isinstance(tgan, str) and ys in tgan:
+                locations.append(f"{gong_name}(天盘{ys})")
+
+            # 检查天盘星
+            txing = p.get("天盘星", "")
+            if isinstance(txing, str) and ys in txing:
+                locations.append(f"{gong_name}(星{ys})")
+
+            # 检查八门
+            bamen = p.get("八门", "")
+            if isinstance(bamen, str) and (bamen == ys or f"{bamen}门" == ys):
+                locations.append(f"{gong_name}(门{bamen})")
+            elif isinstance(bamen, str) and ys in bamen:
+                pass  # avoid false match
+
+            # 检查八神
+            bashen = p.get("八神", "")
+            if isinstance(bashen, str) and ys in bashen:
+                locations.append(f"{gong_name}(神{ys})")
+
+            # 特殊：日干
+            if ys == "日干" and ri_gan_gong and gong_num == ri_gan_gong:
+                locations.append(f"{gong_name}(日干落宫)")
+
+            # 特殊：值符
+            if ys == "值符":
+                if isinstance(bashen, str) and "值符" in bashen:
+                    locations.append(f"{gong_name}(神值符)")
+
+            # 特殊：坤宫
+            if ys == "坤宫" and "坤" in gong_name:
+                locations.append(f"{gong_name}(坤宫)")
+
+        if locations:
+            yongshen_locations.append({"用神": ys, "落宫": list(set(locations))})
+        else:
+            yongshen_locations.append({"用神": ys, "落宫": ["未找到"]})
+
+    # 分析日干宫与用神宫的生克关系
+    shengke_analysis = []
+    if ri_gan_gong:
+        ri_wx = GONG_POS.get(ri_gan_gong, {}).get("wuxing", "")
+
+        for entry in yongshen_locations:
+            ys = entry["用神"]
+            for loc in entry["落宫"]:
+                if "未找到" in loc:
+                    continue
+                # 提取宫名 → 宫号
+                for gong_num in [1, 2, 3, 4, 6, 7, 8, 9]:
+                    gn = GONG_POS[gong_num]["name"]
+                    if gn in loc:
+                        ys_wx = GONG_POS[gong_num]["wuxing"]
+                        rel = wx_rel(ri_wx, ys_wx)
+
+                        rel_desc_map = {
+                            "同": f"日干宫({ri_wx})与{ys}宫({ys_wx})比和 — 和谐共处",
+                            "a生b": f"日干宫({ri_wx})生{ys}宫({ys_wx}) — 我生彼为泄气",
+                            "a克b": f"日干宫({ri_wx})克{ys}宫({ys_wx}) — 我克彼为财/掌控",
+                            "a被b生": f"{ys}宫({ys_wx})生日干宫({ri_wx}) — 彼生我为得力",
+                            "a被b克": f"{ys}宫({ys_wx})克日干宫({ri_wx}) — 彼克我为不利",
+                        }
+                        shengke_analysis.append({
+                            "用神": ys,
+                            "落宫": gn,
+                            "用神宫五行": ys_wx,
+                            "日干宫五行": ri_wx,
+                            "生克关系": rel_desc_map.get(rel, ""),
+                        })
+                        break
+
+    # 收集用神相关术语说明
+    yongshen_notes = []
+    for kw in matched_keywords:
+        _, note = YONGSHEN_KEYWORDS.get(kw, ([], ""))
+        if note:
+            yongshen_notes.append(note)
+
+    return {
+        "匹配关键词": matched_keywords,
+        "用神列表": matched_yongshen,
+        "用神说明": yongshen_notes,
+        "用神落宫": yongshen_locations,
+        "日干用神生克": shengke_analysis,
+    }
+
+
+# =============================================================================
 # 综合排盘
 # =============================================================================
 
-def qimen_pai_pan(dt: datetime) -> dict:
+def qimen_pai_pan(dt: datetime, question: str = "") -> dict:
     """
     时家奇门置闰法 完整排盘。
 
     参数: dt - 具体日期时间
+          question - 用户问题（用于用神分析）
     """
     is_yang = is_yangdun(dt)
     ju_num = get_ju_number(dt)
@@ -535,28 +957,17 @@ def qimen_pai_pan(dt: datetime) -> dict:
     # 格局检测
     ge_patterns = check_ge_patterns(dipan, tianpan_gan)
 
-    # 门宫生克: 八门五行 vs 九宫五行
-    men_gong_shengke = []
-    from utils import wuxing_relation as qm_wx_rel
-    for gong_num in range(1, 10):
-        if gong_num == 5: continue
-        men = renpan.get(gong_num, "")
-        gong_wx = GONG_POS[gong_num]["wuxing"]
-        men_wx = BA_MEN_WUXING.get(men, "")
-        if men and men_wx:
-            rel = qm_wx_rel(men_wx, gong_wx)
-            desc = {
-                "同": f"{men}({men_wx})比和宫({gong_wx}) — 门宫相合",
-                "a生b": f"{men}({men_wx})生宫({gong_wx}) — 门生宫为泄(吉门减力)",
-                "a克b": f"{men}({men_wx})克宫({gong_wx}) — 门克宫为迫(凶门更凶)",
-                "a被b生": f"宫({gong_wx})生{men}({men_wx}) — 宫生门为和(吉门得生)",
-                "a被b克": f"宫({gong_wx})克{men}({men_wx}) — 宫克门为制(凶门被制)",
-            }
-            men_gong_shengke.append({
-                "宫位": GONG_POS[gong_num]["name"],
-                "门": men,
-                "关系": desc.get(rel, ""),
-            })
+    # 门宫分析（使用增强版术语）
+    men_gong_analysis = analyze_men_gong(renpan)
+
+    # 马星
+    maxing = get_maxing(shichen)
+
+    # 五不遇时
+    wubuyushi, wubuyushi_desc = check_wubuyushi(day_gan, hour_gan)
+
+    # 六仪击刑
+    liuyi_jixing = check_liuyi_jixing(dipan)
 
     # 旬空/空亡: 日柱所在旬空地支对应的宫位
     xun_kong_gong = []
@@ -631,6 +1042,12 @@ def qimen_pai_pan(dt: datetime) -> dict:
             info["八神"] = shenpan.get(gong_num, "")
             palaces.append(info)
 
+    # 应期计算（依赖 palaces）
+    yingqi = calc_yingqi(palaces, ri_gan_gong, shi_gan_gong)
+
+    # 用神分析（依赖 palaces）
+    yongshen = analyze_yongshen(palaces, hour_gan, day_gan, question, ri_gan_gong)
+
     return {
         "时间": dt.strftime("%Y-%m-%d %H:00"),
         "节气": jieqi,
@@ -643,7 +1060,14 @@ def qimen_pai_pan(dt: datetime) -> dict:
         "日干落宫": ri_gan_gong,
         "时干落宫": shi_gan_gong,
         "格局": ge_patterns,
-        "门宫生克": men_gong_shengke,
+        "门宫分析": men_gong_analysis,
+        "门宫生克": men_gong_analysis,  # 向后兼容
+        "马星落宫": maxing,
+        "五不遇时": wubuyushi,
+        "五不遇时说明": wubuyushi_desc,
+        "六仪击刑": liuyi_jixing,
+        "应期": yingqi,
+        "用神分析": yongshen,
         "旬空宫": xun_kong_gong,
         "三奇入墓": qimen_sanqi_rumu,
         "伏吟": qimen_fuyin,
@@ -718,6 +1142,27 @@ if __name__ == "__main__":
     print(f"值使门: {result['值使门']}")
     print(f"日干落宫: {result['日干落宫']}")
     print(f"时干落宫: {result['时干落宫']}")
+    print(f"马星: {result.get('马星落宫', {}).get('马星所在', '')}")
+    print(f"五不遇时: {'是' if result.get('五不遇时') else '否'} — {result.get('五不遇时说明', '')}")
+    print(f"六仪击刑: {len(result.get('六仪击刑', []))}处")
+    for jx in result.get("六仪击刑", []):
+        print(f"  {jx['六仪']}在{jx['宫位']}: {jx['击刑']}")
+
+    print(f"\n格局({len(result.get('格局',[]))}处):")
+    for ge in result.get("格局", [])[:5]:
+        print(f"  {ge['格局']} ({ge['组合']}) — {ge['吉凶']}")
+
+    print(f"\n门宫分析:")
+    for mg in result.get("门宫分析", [])[:4]:
+        print(f"  {mg['术语']}: {mg['关系'][:60]}")
+
+    print(f"\n应期: {result.get('应期', {}).get('应期判断', '')}")
+
+    ys = result.get("用神分析", {}).get("用神落宫", [])
+    if ys:
+        print(f"\n用神分析:")
+        for y in ys:
+            print(f"  {y['用神']}: {', '.join(y['落宫'])}")
 
     print("\n九宫:")
     for p in result["九宫"]:
